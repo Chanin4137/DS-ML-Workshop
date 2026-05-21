@@ -11,3 +11,6 @@ if st.button("💰 ระบบคำนวณส่วนลดตามยอ�
     st.switch_page("pages/app1_discount_calc.py")
 if st.button("💰 Customer Data Cleaner"):
     st.switch_page("pages/clean_customers.py")
+if st.button("💰 Mini Project"):
+    st.switch_page("pages/energy_inventory.py")
+

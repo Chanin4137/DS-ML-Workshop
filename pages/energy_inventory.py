@@ -2,183 +2,107 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from io import StringIO
+import seaborn as sns
  
-# --- 0. Streamlit App Setup ---
-st.set_page_config(layout="wide", page_title="Energy Drink Sales Analysis")
-st.title("🥤 Energy Drink Sales Data Analysis")
-st.write("แอปพลิเคชันสำหรับวิเคราะห์ยอดขาย โดยเริ่มต้นจากการอัปโหลดข้อมูลดิบของคุณ")
+# ตั้งค่าความสวยงามของกราฟ
+sns.set_theme(style="whitegrid")
  
-# --- 1. Data Upload Section ---
-st.header("1. การนำข้อมูลเข้าระบบ (Data Upload)")
+st.title('📊 แอปพลิเคชันวิเคราะห์ข้อมูลคลังสินค้าเบื้องต้น')
+st.write('แอปนี้จะช่วยทำความสะอาด จัดการ และแสดงผลข้อมูลสต็อกสินค้า')
  
-# Sidebar สำหรับการตั้งค่า
-st.sidebar.header("⚙️ Data Settings")
-uploaded_file = st.sidebar.file_uploader("เลือกไฟล์ CSV ของคุณ", type=["csv"])
+@st.cache_data
+def generate_raw_data():
+    """สร้างข้อมูลดิบสำหรับคลังสินค้า"""
+    n_rows = 120
+    products = ['Energy_Original', 'Energy_Storm', 'Energy_Zero', 'Sport_Blue', 'Vit_C_Plus']
+    regions = ['North', 'South', 'East', 'West', 'Central']
  
-# ตรวจสอบการ Reset ข้อมูล
-if st.sidebar.button("🔄 Reset Data"):
-    for key in st.session_state.keys():
-        del st.session_state[key]
-    st.rerun()
+    data = {
+        'SKU_ID': [f'SKU-{1000+i}' for i in range(n_rows)],
+        'Product_Name': np.random.choice(products, n_rows),
+        'Region': np.random.choice(regions, n_rows),
+        'Current_Stock': np.random.randint(-15, 500, n_rows),
+        'Unit_Cost': [np.random.uniform(15, 45) if np.random.random() > 0.15 else np.nan for _ in range(n_rows)],
+        'Min_Requirement': [np.random.randint(50, 150) if np.random.random() > 0.05 else 9999 for _ in range(n_rows)],
+        'Last_Restock': [(pd.to_datetime('2024-01-01') + pd.to_timedelta(np.random.randint(0, 100), unit='d')).strftime('%d/%m/%Y') for _ in range(n_rows)]
+    }
+    df_raw = pd.DataFrame(data)
+    return df_raw
  
-if uploaded_file is not None:
-    # อ่านข้อมูลเมื่อมีการอัปโหลดครั้งแรก
-    if 'raw_df' not in st.session_state:
-        st.session_state['raw_df'] = pd.read_csv(uploaded_file)
+@st.cache_data
+def process_and_clean_data(df_raw_input):
+    """ประมวลผลและทำความสะอาดข้อมูลคลังสินค้า"""
+    df = df_raw_input.copy()
  
-    df = st.session_state['raw_df']
-    st.success(f"อัปโหลดไฟล์ '{uploaded_file.name}' สำเร็จ!")
+    # 1. จัดการคอลัมน์ Last_Restock เป็นรูปแบบวันที่ที่ถูกต้อง
+    df['Last_Restock'] = pd.to_datetime(df['Last_Restock'], dayfirst=True)
  
-    # --- 2. Sidebar: Cleaning Options ---
-    st.sidebar.divider()
-    st.sidebar.header("🧹 Cleaning Options")
+    # 2. จัดการสต๊อกติดลบ
+    df.loc[df['Current_Stock'] < 0, 'Current_Stock'] = np.nan
+    # เติมค่าว่างด้วยค่าเฉลี่ยแยกตามสินค้า
+    df['Current_Stock'] = df['Current_Stock'].fillna(
+        df.groupby('Product_Name', observed=False)['Current_Stock'].transform('mean')
+    )
  
-    # กำหนดชื่อคอลัมน์ที่ต้องการใช้งานโดยตรง
-    date_col = 'Date'
-    sales_col = 'Sales'
-    prod_col = 'Product'
-    reg_col = 'Region'
+    # 3. เติมราคาทุนที่หายไป (ใช้ Unit_Cost เฉลี่ยแยกตามกลุ่มสินค้า)
+    df['Unit_Cost'] = df['Unit_Cost'].fillna(
+        df.groupby('Product_Name')['Unit_Cost'].transform('mean')
+    )
  
-    if st.sidebar.button("✨ Clean & Process Data"):
-        # ตรวจสอบว่าในไฟล์มีคอลัมน์ที่ต้องการครบถ้วนหรือไม่
-        required_cols = [date_col, sales_col, prod_col, reg_col]
-        if all(col in df.columns for col in required_cols):
+    # 4. จัดการค่า Min_Requirement ที่สูงผิดปกติ
+    df.loc[df['Min_Requirement'] > 500, 'Min_Requirement'] = 100
  
-            working_df = df.copy()
+    # 5. คำนวณมูลค่าทรัพย์สิน (Inventory_Value)
+    df['Inventory_Value'] = df['Current_Stock'] * df['Unit_Cost']
  
-            # 3.1 Type Conversion
-            working_df[date_col] = pd.to_datetime(working_df[date_col], errors='coerce')
-            working_df[prod_col] = working_df[prod_col].astype('category')
-            working_df[reg_col] = working_df[reg_col].astype('category')
+    # 6. สร้างระบบแจ้งเตือน (Order_Signal)
+    df['Order_Signal'] = np.where(df['Current_Stock'] < df['Min_Requirement'], 'ORDER NOW', 'STOCK OK')
  
-            # 3.2 Logic Correction & Imputation
-            working_df.loc[working_df[sales_col] < 0, sales_col] = np.nan
-            working_df[sales_col] = working_df[sales_col].fillna(
-                working_df.groupby(prod_col, observed=False)[sales_col].transform('mean')
-            )
+    return df
  
-            # 3.3 Outlier Handling
-            working_df = working_df[working_df[sales_col] <= 1000]
+# --- โหลดและประมวลผลข้อมูล ---
+with st.spinner('กำลังสร้างและประมวลผลข้อมูล...'):
+    df_raw_generated = generate_raw_data()
+    df_cleaned = process_and_clean_data(df_raw_generated)
  
-            # 4. Feature Engineering
-            working_df['DayOfWeek'] = working_df[date_col].dt.day_name()
-            working_df['Is_Above_Target'] = working_df[sales_col] > 150
+st.header('ข้อมูลคลังสินค้าที่ทำความสะอาดแล้ว')
+st.dataframe(df_cleaned.head())
+st.write(f"จำนวนรายการทั้งหมด: {len(df_cleaned)} รายการ")
  
-            st.session_state['cleaned_df'] = working_df
-            st.sidebar.success("ทำความสะอาดข้อมูลเสร็จแล้ว!")
-        else:
-            # แจ้งเตือนถ้าชื่อคอลัมน์ในไฟล์ไม่ตรงกับที่โค้ดระบุไว้
-            missing = [c for c in required_cols if c not in df.columns]
-            st.sidebar.error(f"ไม่พบคอลัมน์: {', '.join(missing)} ในไฟล์ที่อัปโหลด")
+st.subheader('สถิติข้อมูลเบื้องต้น')
+st.dataframe(df_cleaned.describe())
  
-    # --- 3. Main Content: Tabs ---
-    tab1, tab2, tab3 = st.tabs(["📋 การตรวจสอบข้อมูล", "📂 สรุปข้อมูลรายกลุ่ม", "📈 กราฟวิเคราะห์"])
+# --- สรุปมูลค่าสต๊อกรวมแยกตามภูมิภาค ---
+st.header('สรุปมูลค่าสต๊อกแยกตามภูมิภาค')
+region_summary = df_cleaned.groupby('Region')['Inventory_Value'].sum().reset_index()
+region_summary = region_summary.sort_values(by='Inventory_Value', ascending=False)
+st.dataframe(region_summary)
  
-    with tab1:
-        col_a, col_b = st.columns(2)
+fig1, ax1 = plt.subplots(figsize=(10, 6))
+sns.barplot(data=region_summary, x='Region', y='Inventory_Value', palette='viridis', ax=ax1)
+ax1.set_title('Total Inventory Value by Region', fontsize=16, fontweight='bold')
+ax1.set_xlabel('Region', fontsize=12)
+ax1.set_ylabel('Total Value (THB)', fontsize=12)
+st.pyplot(fig1)
  
-        # --- ฝั่งข้อมูลดิบ (Raw Data) ---
-        with col_a:
-            st.subheader("🔍 ข้อมูลดิบ (Raw Data)")
+# --- รายการสินค้าที่ต้องสั่งซื้อด่วน ---
+st.header('รายการสินค้าที่ต้องสั่งซื้อด่วน')
+order_list = df_cleaned[df_cleaned['Order_Signal'] == 'ORDER NOW'].copy()
+order_list = order_list.sort_values(by='Product_Name')
+st.dataframe(order_list[['SKU_ID', 'Product_Name', 'Region', 'Current_Stock', 'Min_Requirement', 'Inventory_Value']])
+st.write(f"สรุป: มีสินค้าที่ต้องสั่งซื้อเพิ่มทั้งหมด {len(order_list)} รายการ")
  
-            # แสดง .info()
-            st.write("**Data Structure (.info):**")
-            buffer_raw = StringIO()
-            df.info(buf=buffer_raw)
-            st.code(buffer_raw.getvalue())
+# --- สถานะสต็อก ---
+st.header('สถานะสต็อก')
+fig2, ax2 = plt.subplots(figsize=(8, 5))
+status_counts = df_cleaned['Order_Signal'].value_counts()
+colors = ['#2ecc71' if (x == 'STOCK OK') else '#e74c3c' for x in status_counts.index]
+status_counts.plot(kind='bar', color=colors, ax=ax2)
+ax2.set_title('Inventory Health Status', fontsize=16, fontweight='bold')
+ax2.set_xlabel('Status', fontsize=12)
+ax2.set_ylabel('Number of SKUs', fontsize=12)
+ax2.set_xticks(range(len(status_counts.index)), status_counts.index, rotation=0)
+st.pyplot(fig2)
  
-            # แสดง .describe()
-            st.write("**Statistics (.describe):**")
-            st.dataframe(df.describe(), use_container_width=True)
- 
-            # แสดงตารางข้อมูลตัวอย่าง
-            st.write("**Data Preview (Top 10):**")
-            st.dataframe(df.head(10), use_container_width=True)
- 
-        # --- ฝั่งข้อมูลที่ Clean แล้ว (Cleaned Data) ---
-        with col_b:
-            st.subheader("🧼 ข้อมูลที่ Clean แล้ว (Cleaned Data)")
- 
-            if 'cleaned_df' in st.session_state:
-                cdf = st.session_state['cleaned_df']
- 
-                # แสดง .info() ของข้อมูลที่ Clean แล้ว
-                st.write("**Cleaned Structure (.info):**")
-                buffer_clean = StringIO()
-                cdf.info(buf=buffer_clean)
-                st.code(buffer_clean.getvalue())
- 
-                # แสดง .describe() ของข้อมูลที่ Clean แล้ว เฉพาะคอลัมน์ Sales
-                st.write(f"**Cleaned Statistics ({sales_col}):**")
- 
-                # เลือกเฉพาะคอลัมน์ที่เก็บค่า Sales (ใช้ตัวแปร sales_col ที่รับมาจาก Selectbox)
-                # และแปลงเป็น DataFrame เพื่อให้แสดงผลเป็นตารางที่สวยงามบน Streamlit
-                st.dataframe(cdf[[sales_col]].describe(), use_container_width=True)
- 
-                # แสดงตารางข้อมูลตัวอย่างที่ Clean แล้ว
-                st.write("**Cleaned Preview (Top 10):**")
-                st.dataframe(cdf.head(10), use_container_width=True)
-            else:
-                # กรณีที่ยังไม่ได้กดปุ่ม Clean
-                st.info("💡 กรุณากดปุ่ม 'Clean & Process Data' ที่แถบด้านซ้าย เพื่อเปรียบเทียบข้อมูล")
-                st.image("https://cdn-icons-png.flaticon.com/512/2037/2037061.png", width=100) # ตกแต่งเล็กน้อย
- 
-    with tab2:
-        if 'cleaned_df' in st.session_state:
-            cdf = st.session_state['cleaned_df']
-            st.subheader("📊 รายงานสรุปผล")
- 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write("**ยอดขายเฉลี่ยรายภูมิภาค**")
-                st.dataframe(cdf.groupby(reg_col, observed=False)[sales_col].mean().sort_values(ascending=False))
-            with c2:
-                st.write("**ยอดขายรวมรายสินค้า**")
-                st.dataframe(cdf.groupby(prod_col, observed=False)[sales_col].sum())
- 
-            st.write("**Pivot Table: สินค้า vs ภูมิภาค**")
-            pivot = cdf.pivot_table(values=sales_col, index=prod_col, columns=reg_col, aggfunc='sum', observed=False)
-            st.dataframe(pivot, use_container_width=True)
- 
-    with tab3:
-        if 'cleaned_df' in st.session_state:
-            cdf = st.session_state['cleaned_df']
-            st.subheader("📈 กราฟแสดงผล (Visualizations)")
- 
-            # กราฟที่ 1: Line Chart
-            st.write("**แนวโน้มยอดขายตามวันที่**")
-            daily_sales = cdf.groupby(date_col)[sales_col].sum()
-            fig1, ax1 = plt.subplots(figsize=(10, 4))
-            daily_sales.plot(kind='line', marker='o', color='#1f77b4', ax=ax1)
-            ax1.set_ylabel("Total Sales")
-            ax1.grid(True, linestyle='--', alpha=0.7)
-            st.pyplot(fig1)
- 
-            # กราฟที่ 2 & 3
-            c3, c4 = st.columns(2)
-            with c3:
-                st.write("**ยอดขายรวมแยกตามภูมิภาค**")
-                fig2, ax2 = plt.subplots()
-                cdf.groupby(reg_col, observed=False)[sales_col].sum().plot(kind='bar', color='orange', ax=ax2)
-                plt.xticks(rotation=45)
-                st.pyplot(fig2)
-            with c4:
-                st.write("**สัดส่วนยอดขายตามประเภทสินค้า**")
-                fig3, ax3 = plt.subplots()
-                cdf.groupby(prod_col, observed=False)[sales_col].sum().plot(kind='pie', autopct='%1.1f%%', ax=ax3)
-                ax3.set_ylabel("")
-                st.pyplot(fig3)
- 
-            # ปุ่มดาวน์โหลด
-            st.divider()
-            csv_data = cdf.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 ดาวน์โหลดไฟล์ที่ Clean แล้ว (CSV)", data=csv_data, file_name="cleaned_sales_report.csv", mime="text/csv")
- 
-else:
-    st.info("👆 กรุณาอัปโหลดไฟล์ CSV ทางแถบเมนูด้านซ้ายเพื่อเริ่มต้นใช้งาน")
- 
-# ปุ่มกลับหน้าหลัก
-st.sidebar.divider()
-if st.sidebar.button("🏠 กลับหน้าหลัก"):
+if st.button("🏠 กลับหน้าหลัก"):
     st.switch_page("app.py")

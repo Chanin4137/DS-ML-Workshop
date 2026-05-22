@@ -330,6 +330,8 @@ if uploaded_file is not None:
 else:
     st.info("โปรดอัปโหลดไฟล์ CSV ของคุณเพื่อเริ่มต้นการทำความสะอาดข้อมูลด้านบน 👆")
 
+
+if st.button("🏠 กลับหน้าหลัก"):
 # Placeholder for the return to home button if multiple pages were implemented.
 # For a single-page app, this might not be needed or would link elsewhere.
 # if st.button("🏠 กลับหน้าหลัก"): # This button might not work as expected in a single-file app

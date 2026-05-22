@@ -9,8 +9,11 @@ st.write("##### Day 1: การจัดการข้อมูลพื้น
 
 if st.button("💰 ระบบคำนวณส่วนลดตามยอดซื้อ"):
     st.switch_page("pages/app1_discount_calc.py")
-if st.button("💰 Customer Data Cleaner"):
+elif st.button("💰 Customer Data Cleaner"):
     st.switch_page("pages/clean_customers.py")
-if st.button("💰 Mini Project"):
+elif st.button("💰 Mini Project"):
     st.switch_page("pages/energy_inventory.py")
-
+elif st.button("💰 clean app"):
+    st.switch_page("pages/clean_app.py")
+elif st.button("💰 clean app by ชานอิน"):
+    st.switch_page("pages/clean_app_by_chanin.py")

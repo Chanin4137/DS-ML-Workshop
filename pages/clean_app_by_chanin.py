@@ -332,6 +332,7 @@ else:
 
 
 if st.button("🏠 กลับหน้าหลัก"):
+    st.switch_page("app.py")
 # Placeholder for the return to home button if multiple pages were implemented.
 # For a single-page app, this might not be needed or would link elsewhere.
 # if st.button("🏠 กลับหน้าหลัก"): # This button might not work as expected in a single-file app

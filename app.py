@@ -16,3 +16,5 @@ elif st.button("🧹 clean app"):
     st.switch_page("pages/clean_app.py")
 elif st.button("🪅 clean app by ชานอิน"):
     st.switch_page("pages/clean_app_by_chanin.py")
+elif st.button("😋 Transformer APP by ชานอิน"):
+    st.switch_page("pages/transform_app.py")
